@@ -1,0 +1,59 @@
+Option Explicit
+Option Base 1
+
+Sub genererMail()
+
+Workbooks(wbTemplate).Worksheets(wsTemplate6).Activate
+
+Dim a As Long, b As Long, c As Long
+Dim row As Long
+Dim derniereLigne As Long
+Dim colBroker As String, colTgt As String, colDone As String, colDev As String
+
+colBroker = "V"
+row = 11
+derniereLigne = calculLastRow(colBroker, row)
+
+Dim myitem As MailItem
+Dim myApp As Object
+Dim outlookwordeditor As Document
+Dim rg As Range, rg2 As Range
+Dim v As Variant
+Dim lignes As Integer
+Dim nbLignes As Integer
+Dim myInspector As Outlook.Inspector
+Dim wdDoc As Word.Document
+Dim pathFile As String
+
+pathFile = cheminTemplateS & anneeNumero & "\" & moisNom & "\"
+
+Set myApp = CreateObject("Outlook.Application")
+Set myitem = myApp.CreateItem(olMailItem)
+
+Set rg = Range("V" & row - 3 & ":AD" & derniereLigne + 4)
+Set rg2 = Range("V" & row - 3 & ":AD" & derniereLigne + 4)
+v = rg2
+
+rg.Copy
+
+myitem.Display
+
+Set outlookwordeditor = myitem.GetInspector.WordEditor
+outlookwordeditor.Range.PasteAndFormat wdChartPicture
+
+Dim emailTo As String
+emailTo = ""
+
+With myitem
+    .To = emailTo
+    '.CC = emailCC
+    .Attachments.Add pathFile & wbTemplateS
+    .Subject = "Fixed Income Statistics " & Mid(dateJour, 1, 2) & "-" & Mid(dateJour, 4, 2) & "-" & Mid(dateJour, 7, 4) & " YTD"
+    .Importance = olImportanceHigh
+End With
+
+Range("A1").Select
+Workbooks(wbTemplate).Worksheets(wsTemplate1).Activate
+Range("A1").Select
+
+End Sub
