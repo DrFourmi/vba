@@ -1,0 +1,2248 @@
+Option Explicit
+Option Base 1
+
+Sub macroCalculations()
+
+Call ouvrirFichier(cheminGOMSS & "\" & anneeNumero & "\", wbGOMSSYTD)
+Call tableauOrdre
+Call tabCollec
+Call tableauxSecAndPrim
+Call tableauSecAndPrimConso
+Call tabBrokersDealersTotal
+Call tabBrokersDealersTotalEMHard
+Call tabBrokersDealersTotalEMLocal
+Call tabBrokersDealersTotalEM
+Call tabCountry
+Call tabEMOnlyHard
+Call tabEMOnlyLocal
+Call tabEMOnly
+Call tabSegment
+Call tabMaturity
+Call tabOutstandingAmt
+Call tabNominal
+Call tabTradingVenues
+Call tabCapitalStructure
+Call fermerFichier(wbGOMSSYTD)
+
+Exit Sub
+arret:
+
+End Sub
+
+Sub tableauOrdre()
+
+Dim nbRowYTD As Long
+Dim a As Long, b As Long
+Dim nbTransactions As Integer
+nbTransactions = 1
+
+Dim i As Integer
+
+Workbooks(wbGOMSSYTD).Worksheets(wsGOMSSYTD).Activate
+
+nbRowYTD = Range("A1").End(xlDown).row
+
+For a = nbRowYTD To 2 Step -1
+    If Range("B" & a) = "FI" Then
+        If Range("N" & a) = dateJour Then 'On ne reprend que le data du jour demandé
+            If Range("AE" & a) <> "TM_DEV" And Range("AF" & a) <> "TM_DEV" Then 'Attention: On exclut tous les trades qui ont pour manager et trader TM_DEV. En effet, ce sont des trades qui sont passes par l'IT (appels de marge, etc) ou par le Money Market (directement par le gérant, donc non inclus dans les stats du Trading Desk).
+                If Range("AF" & a) = "AQ859" Or Range("AF" & a) = "XQX2T" Or Range("AF" & a) = "AR15G" _
+                Or Range("AF" & a) = "AC383" Or Range("AF" & a) = "AC266" _
+                Or Range("AF" & a) = "A7722" Or Range("AF" & a) = "A7034" _
+                Or Range("AF" & a) = "A7700" Then
+                    ReDim Preserve transaction(1 To nbTransactions)
+                     With transaction(nbTransactions)
+                         .account = Range("A" & a)
+                         .broker = conversionTableBroker(Range("L" & a))
+                         .orderID = Range("G" & a)
+                         .assetClass = Range("B" & a)
+                         .manager = Range("AE" & a)
+                         .trader = Range("AF" & a)
+                         .businessUnit = rechercheBU(nbTransactions)
+                         .tradeDate = Range("N" & a)
+                         .settlementDate = Range("O" & a)
+                         .isin = Range("J" & a)
+                         .secName = Range("K" & a)
+                         If Range("P" & a) = "SELLL" Then
+                             .buy = False
+                             .sell = True
+                         ElseIf Range("P" & a) = "BUYL" Then
+                             .buy = True
+                             .sell = False
+                         End If
+                         .currency = Range("R" & a)
+                         If Range("R" & a) = "EUR" Or Range("R" & a) = "USD" Then
+                            .localCcy = False
+                         Else
+                            .localCcy = True
+                         End If
+                         .nominal = Range("T" & a)
+                         .grossAmount = Range("U" & a)
+                         .price = Range("Z" & a)
+                         .instruction = Range("AJ" & a)
+                         For i = 1 To 5
+                             .losingQuote(i) = conversionTableBroker(Cells(a, 40 + (2 * (i - 1))))
+                         Next
+                         .issuer = rechercheIssuer(Range("AZ" & a), .secName)
+                         .issueQuantity = Range("AX" & a)
+                         .issueDate = Range("BA" & a)
+                         .tradingVenue = rechercheTradingVenue(Range("AI" & a))
+                         .capitalStructure = Range("BI" & a)
+                         .segment = rechercheSegment(Range("BF" & a))
+                         If Range("BA" & a) >= dateJour - 4 Then
+                             .primaryIssue = True
+                         Else
+                             .primaryIssue = False
+                         End If
+                         .maturity = rechercheMaturite(Range("N" & a), Range("BB" & a))
+                         If Mid(Range("BD" & a), 1, 3) = "SOV" Then
+                             .govies = True
+                             .credits = False
+                         ElseIf Mid(Range("BD" & a), 1, 3) = "COR" Or Mid(Range("BD" & a), 1, 3) = "COL" Then
+                             .govies = False
+                             .credits = True
+                         End If
+                         If .credits = True Then
+                            If Range("BE" & a) = "CORPORATE: FINANCIALS" Then
+                                .financial = True
+                            Else
+                                .financial = False
+                            End If
+                         End If
+                     End With
+                     nbTransactions = nbTransactions + 1
+                 End If
+            End If
+        End If
+    End If
+Next
+
+Exit Sub
+arret:
+
+End Sub
+
+Sub tabCollec()
+
+Dim a As Long, b As Long
+Dim c As Long, d As Long, e As Long, f As Long, g As Long
+Dim somme As Variant
+Dim doublon As Boolean, trouve As Boolean, present As Boolean, premierPassage As Boolean
+Dim numCollec As Long
+Dim primaryDejaTrouve As Boolean
+
+premierPassage = True
+ReDim Preserve collecOrder(1 To 1)
+
+For a = 1 To UBound(transaction)
+    If transaction(a).primaryIssue = False Then
+        doublon = False
+        For b = 1 To UBound(transaction)
+            If a <> b Then
+                If transaction(a).orderID = transaction(b).orderID Then
+                    doublon = True
+                End If
+            End If
+        Next
+        
+        trouve = False
+        If doublon = True Then
+            For d = 1 To UBound(collecOrder)
+                If transaction(a).orderID = collecOrder(d).ID Then
+                    trouve = True
+                End If
+            Next
+            
+            If trouve = False Then
+                If premierPassage = False Then
+                    e = UBound(collecOrder) + 1
+                    ReDim Preserve collecOrder(1 To e)
+                    collecOrder(e).ID = transaction(a).orderID
+                Else
+                    premierPassage = False
+                    collecOrder(1).ID = transaction(a).orderID
+                End If
+            End If
+        End If
+    Else
+        doublon = False
+        primaryDejaTrouve = False
+        For b = 1 To UBound(transaction)
+            If a <> b Then
+                If transaction(a).secName = transaction(b).secName Then
+                    If transaction(a).isin = transaction(b).isin Then
+                        If transaction(a).tradeDate = transaction(a).tradeDate Then
+                            If transaction(a).broker = transaction(b).broker Then
+                                If transaction(a).issueDate = transaction(b).issueDate Then
+                                    doublon = True
+                                    If a > b Then
+                                        primaryDejaTrouve = True
+                                    End If
+                                End If
+                            End If
+                        End If
+                    End If
+                End If
+            End If
+        Next
+        
+        trouve = False
+        If doublon = True Then
+            For d = 1 To UBound(collecOrder)
+                If transaction(a).orderID = collecOrder(d).ID Then
+                    trouve = True
+                End If
+            Next
+            
+            If trouve = False Then
+                If premierPassage = False Then
+                    e = UBound(collecOrder) + 1
+                    ReDim Preserve collecOrder(1 To e)
+                    collecOrder(e).ID = transaction(a).orderID
+                    If primaryDejaTrouve = True Then
+                        collecOrder(e).comptabilisee = True
+                    End If
+                Else
+                    premierPassage = False
+                    collecOrder(1).ID = transaction(a).orderID
+                End If
+            End If
+        End If
+    End If
+Next
+
+End Sub
+
+Sub tableauxSecAndPrim()
+
+Dim a As Long, b As Long, c As Long
+Dim d As Integer, e As Integer
+Dim f As Long, g As Long
+Dim nbBrokers As Integer
+Dim numTableau As Integer, numBroker As Integer
+Dim numDoublon As Long
+Dim tabVar() As secondaryMarket
+Dim colTiering
+Dim trouve As Boolean, trouve2 As Boolean
+Dim secondPassage As Boolean
+nbBrokers = 0
+
+ReDim tabVar(1 To 1)
+
+ReDim tabSecondaryDMGovFunds(1 To 1)
+ReDim tabSecondaryDMCredFunds(1 To 1)
+ReDim tabSecondaryEMGovHardFunds(1 To 1)
+ReDim tabSecondaryEMGovLocalFunds(1 To 1)
+ReDim tabSecondaryEMGovFunds(1 To 1)
+ReDim tabSecondaryEMCredHardFunds(1 To 1)
+ReDim tabSecondaryEMCredLocalFunds(1 To 1)
+ReDim tabSecondaryEMCredFunds(1 To 1)
+ReDim tabSecondaryDMGovMandates(1 To 1)
+ReDim tabSecondaryDMCredMandates(1 To 1)
+ReDim tabSecondaryEMGovHardMandates(1 To 1)
+ReDim tabSecondaryEMGovLocalMandates(1 To 1)
+ReDim tabSecondaryEMGovMandates(1 To 1)
+ReDim tabSecondaryEMCredHardMandates(1 To 1)
+ReDim tabSecondaryEMCredLocalMandates(1 To 1)
+ReDim tabSecondaryEMCredMandates(1 To 1)
+
+ReDim tabPrimaryDMGovFunds(1 To 1)
+ReDim tabPrimaryDMCredFunds(1 To 1)
+ReDim tabPrimaryEMGovHardFunds(1 To 1)
+ReDim tabPrimaryEMGovLocalFunds(1 To 1)
+ReDim tabPrimaryEMGovFunds(1 To 1)
+ReDim tabPrimaryEMCredHardFunds(1 To 1)
+ReDim tabPrimaryEMCredLocalFunds(1 To 1)
+ReDim tabPrimaryEMCredFunds(1 To 1)
+ReDim tabPrimaryDMGovMandates(1 To 1)
+ReDim tabPrimaryDMCredMandates(1 To 1)
+ReDim tabPrimaryEMGovHardMandates(1 To 1)
+ReDim tabPrimaryEMGovLocalMandates(1 To 1)
+ReDim tabPrimaryEMGovMandates(1 To 1)
+ReDim tabPrimaryEMCredHardMandates(1 To 1)
+ReDim tabPrimaryEMCredLocalMandates(1 To 1)
+ReDim tabPrimaryEMCredMandates(1 To 1)
+
+For a = 1 To UBound(transaction)
+    secondPassage = False
+    If transaction(a).primaryIssue = False Then
+        If transaction(a).businessUnit = "Emerging Market Debt" Then
+            If transaction(a).govies = True Then
+                numTableau = 5
+                tabVar() = tabSecondaryEMGovFunds()
+            Else
+                numTableau = 8
+                tabVar() = tabSecondaryEMCredFunds()
+            End If
+        Else
+            If transaction(a).govies = True Then
+                If transaction(a).businessUnit = "Funds" Then
+                    If rechercheTradeEM(transaction(a).issuer) = True Then
+                        numTableau = 5
+                        tabVar() = tabSecondaryEMGovFunds()
+                    Else
+                        numTableau = 1
+                        tabVar() = tabSecondaryDMGovFunds()
+                    End If
+                ElseIf transaction(a).businessUnit = "Mandates" Then
+                    If rechercheTradeEM(transaction(a).issuer) = True Then
+                        numTableau = 13
+                        tabVar() = tabSecondaryEMGovMandates()
+                    Else
+                        numTableau = 9
+                        tabVar() = tabSecondaryDMGovMandates()
+                    End If
+                End If
+            Else
+                If transaction(a).businessUnit = "Funds" Then
+                    If rechercheTradeEM(transaction(a).issuer) = True Then
+                        numTableau = 8
+                        tabVar() = tabSecondaryEMCredFunds()
+                    Else
+                        numTableau = 2
+                        tabVar() = tabSecondaryDMCredFunds()
+                    End If
+                ElseIf transaction(a).businessUnit = "Mandates" Then
+                    If rechercheTradeEM(transaction(a).issuer) = True Then
+                        numTableau = 16
+                        tabVar() = tabSecondaryEMCredMandates()
+                    Else
+                        numTableau = 10
+                        tabVar() = tabSecondaryDMCredMandates()
+                    End If
+                End If
+            End If
+        End If
+    Else
+        If transaction(a).businessUnit = "Emerging Market Debt" Then
+            If transaction(a).govies = True Then
+                numTableau = 21
+                tabVar() = tabPrimaryEMGovFunds()
+            Else
+                numTableau = 24
+                tabVar() = tabPrimaryEMCredFunds()
+            End If
+        Else
+            If transaction(a).govies = True Then
+                If transaction(a).businessUnit = "Funds" Then
+                    If rechercheTradeEM(transaction(a).issuer) = True Then
+                        numTableau = 21
+                        tabVar() = tabPrimaryEMGovFunds()
+                    Else
+                        numTableau = 17
+                        tabVar() = tabPrimaryDMGovFunds()
+                    End If
+                ElseIf transaction(a).businessUnit = "Mandates" Then
+                    If rechercheTradeEM(transaction(a).issuer) = True Then
+                        numTableau = 29
+                        tabVar() = tabPrimaryEMGovMandates()
+                    Else
+                        numTableau = 25
+                        tabVar() = tabPrimaryDMGovMandates()
+                    End If
+                End If
+            Else
+                If transaction(a).businessUnit = "Funds" Then
+                    If rechercheTradeEM(transaction(a).issuer) = True Then
+                        numTableau = 24
+                        tabVar() = tabPrimaryEMCredFunds()
+                    Else
+                        numTableau = 18
+                        tabVar() = tabPrimaryDMCredFunds()
+                    End If
+                ElseIf transaction(a).businessUnit = "Mandates" Then
+                    If rechercheTradeEM(transaction(a).issuer) = True Then
+                        numTableau = 32
+                        tabVar() = tabPrimaryEMCredMandates()
+                    Else
+                        numTableau = 26
+                        tabVar() = tabPrimaryDMCredMandates()
+                    End If
+                End If
+            End If
+        End If
+    End If
+    
+recommencer:
+    If secondPassage = True Then
+        secondPassage = False
+        If numTableau = 5 Then
+            If transaction(a).localCcy = False Then
+                numTableau = 3
+                tabVar() = tabSecondaryEMGovHardFunds()
+            Else
+                numTableau = 4
+                tabVar() = tabSecondaryEMGovLocalFunds()
+            End If
+        ElseIf numTableau = 8 Then
+            If transaction(a).localCcy = False Then
+                numTableau = 6
+                tabVar() = tabSecondaryEMCredHardFunds()
+            Else
+                numTableau = 7
+                tabVar() = tabSecondaryEMCredLocalFunds()
+            End If
+        ElseIf numTableau = 13 Then
+            If transaction(a).localCcy = False Then
+                numTableau = 11
+                tabVar() = tabSecondaryEMGovHardMandates()
+            Else
+                numTableau = 12
+                tabVar() = tabSecondaryEMGovLocalMandates()
+            End If
+        ElseIf numTableau = 16 Then
+            If transaction(a).localCcy = False Then
+                numTableau = 14
+                tabVar() = tabSecondaryEMCredHardMandates()
+            Else
+                numTableau = 15
+                tabVar() = tabSecondaryEMCredLocalMandates()
+            End If
+        ElseIf numTableau = 21 Then
+            If transaction(a).localCcy = False Then
+                numTableau = 19
+                tabVar() = tabPrimaryEMGovHardFunds()
+            Else
+                numTableau = 20
+                tabVar() = tabPrimaryEMGovLocalFunds()
+            End If
+        ElseIf numTableau = 24 Then
+            If transaction(a).localCcy = False Then
+                numTableau = 22
+                tabVar() = tabPrimaryEMCredHardFunds()
+            Else
+                numTableau = 23
+                tabVar() = tabPrimaryEMCredLocalFunds()
+            End If
+        ElseIf numTableau = 29 Then
+            If transaction(a).localCcy = False Then
+                numTableau = 27
+                tabVar() = tabPrimaryEMGovHardMandates()
+            Else
+                numTableau = 28
+                tabVar() = tabPrimaryEMGovLocalMandates()
+            End If
+        ElseIf numTableau = 32 Then
+            If transaction(a).localCcy = False Then
+                numTableau = 30
+                tabVar() = tabPrimaryEMCredHardMandates()
+            Else
+                numTableau = 31
+                tabVar() = tabPrimaryEMCredLocalMandates()
+            End If
+        End If
+    End If
+    
+    If numTableau = 1 Or numTableau = 9 Or numTableau = 17 Or numTableau = 25 Then
+        colTiering = "R"
+    ElseIf numTableau = 2 Or numTableau = 10 Or numTableau = 18 Or numTableau = 26 Then
+        colTiering = "V"
+    Else
+        colTiering = ""
+    End If
+    
+    If tabVar(1).broker <> "" Then
+        trouve = False
+        For b = 1 To UBound(tabVar)
+            If transaction(a).broker = tabVar(b).broker Then
+                trouve = True
+                numBroker = b
+                Exit For
+            End If
+        Next
+        
+        If trouve = False Then
+            numBroker = UBound(tabVar) + 1
+            ReDim Preserve tabVar(1 To numBroker)
+            tabVar(numBroker).broker = transaction(a).broker
+            tabVar(numBroker).amtDone = 0
+            tabVar(numBroker).dealDone = 0
+        End If
+    Else
+        numBroker = 1
+        ReDim Preserve tabVar(1 To numBroker)
+        tabVar(numBroker).broker = transaction(a).broker
+        tabVar(numBroker).amtDone = 0
+        tabVar(numBroker).dealDone = 0
+    End If
+    
+    If tabVar(numBroker).tiering = "" Then
+        If colTiering <> "" Then
+            tabVar(numBroker).tiering = rechercheTiering(colTiering, numBroker, numTableau, tabVar)
+        End If
+    End If
+    
+    tabVar(numBroker).amtDone = tabVar(numBroker).amtDone + transaction(a).grossAmount
+    If numTableau < 17 Then
+        tabVar(numBroker).amtReq = tabVar(numBroker).amtReq + transaction(a).grossAmount
+    End If
+    
+    trouve2 = False
+    For f = 1 To UBound(collecOrder)
+        If collecOrder(f).ID <> "" Then
+            If transaction(a).orderID = collecOrder(f).ID Then
+                trouve2 = True
+                numDoublon = f
+            End If
+        End If
+    Next
+    
+    If trouve2 = False Then
+        tabVar(numBroker).dealDone = tabVar(numBroker).dealDone + 1
+        If numTableau < 17 Then
+            tabVar(numBroker).dealReq = tabVar(numBroker).dealReq + 1
+        End If
+    Else
+        If collecOrder(numDoublon).comptabilisee = False Then
+            tabVar(numBroker).dealDone = tabVar(numBroker).dealDone + 1
+            If numTableau < 17 Then
+                tabVar(numBroker).dealReq = tabVar(numBroker).dealReq + 1
+            End If
+            
+            If numTableau <> 5 And numTableau <> 8 And numTableau <> 13 And numTableau <> 16 And numTableau <> 21 And numTableau <> 24 And numTableau <> 29 And numTableau <> 32 Then
+                collecOrder(numDoublon).comptabilisee = True
+            End If
+        End If
+    End If
+    
+    If numTableau < 17 Then
+        For d = 1 To 5
+            trouve = False
+            For b = 1 To UBound(tabVar)
+                If transaction(a).losingQuote(d) = tabVar(b).broker Then
+                    trouve = True
+                    numBroker = b
+                    tabVar(numBroker).amtReq = tabVar(numBroker).amtReq + transaction(a).grossAmount
+                    
+                    trouve2 = False
+                    For f = 1 To UBound(collecOrder)
+                        If collecOrder(f).ID <> "" Then
+                            If transaction(a).orderID = collecOrder(f).ID Then
+                                trouve2 = True
+                                numDoublon = f
+                            End If
+                        End If
+                    Next
+                    
+                    If trouve2 = False Then
+                        tabVar(numBroker).dealReq = tabVar(numBroker).dealReq + 1
+                    Else
+                        If collecOrder(numDoublon).comptabilisee = False Then
+                            tabVar(numBroker).dealReq = tabVar(numBroker).dealReq + 1
+                            
+                            If numTableau <> 5 And numTableau <> 8 And numTableau <> 13 And numTableau <> 16 And numTableau <> 21 And numTableau <> 24 And numTableau <> 29 And numTableau <> 32 Then
+                                collecOrder(numDoublon).comptabilisee = True
+                            End If
+                        End If
+                    End If
+                    
+                    Exit For
+                End If
+            Next
+            
+            If trouve = False Then
+                If transaction(a).losingQuote(d) <> "" Then
+                    numBroker = UBound(tabVar) + 1
+                    ReDim Preserve tabVar(1 To numBroker)
+                    tabVar(numBroker).amtDone = 0
+                    tabVar(numBroker).dealDone = 0
+                    If colTiering <> "" Then
+                        tabVar(numBroker).tiering = rechercheTiering(colTiering, numBroker, numTableau, tabVar)
+                    End If
+                    tabVar(numBroker).broker = transaction(a).losingQuote(d)
+                    tabVar(numBroker).amtReq = tabVar(numBroker).amtReq + transaction(a).grossAmount
+                    tabVar(numBroker).dealReq = tabVar(numBroker).dealReq + 1
+                End If
+            End If
+        Next
+    End If
+    
+    If numTableau = 1 Then
+        tabSecondaryDMGovFunds = tabVar()
+    ElseIf numTableau = 2 Then
+        tabSecondaryDMCredFunds = tabVar()
+    ElseIf numTableau = 3 Then
+        tabSecondaryEMGovHardFunds = tabVar()
+    ElseIf numTableau = 4 Then
+        tabSecondaryEMGovLocalFunds = tabVar()
+    ElseIf numTableau = 5 Then
+        tabSecondaryEMGovFunds = tabVar()
+    ElseIf numTableau = 6 Then
+        tabSecondaryEMCredHardFunds = tabVar()
+    ElseIf numTableau = 7 Then
+        tabSecondaryEMCredLocalFunds = tabVar()
+    ElseIf numTableau = 8 Then
+        tabSecondaryEMCredFunds = tabVar()
+    ElseIf numTableau = 9 Then
+        tabSecondaryDMGovMandates = tabVar()
+    ElseIf numTableau = 10 Then
+        tabSecondaryDMCredMandates = tabVar()
+    ElseIf numTableau = 11 Then
+        tabSecondaryEMGovHardMandates = tabVar()
+    ElseIf numTableau = 12 Then
+        tabSecondaryEMGovLocalMandates = tabVar()
+    ElseIf numTableau = 13 Then
+        tabSecondaryEMGovMandates = tabVar()
+    ElseIf numTableau = 14 Then
+        tabSecondaryEMCredHardMandates = tabVar()
+    ElseIf numTableau = 15 Then
+        tabSecondaryEMCredLocalMandates = tabVar()
+    ElseIf numTableau = 16 Then
+        tabSecondaryEMCredMandates = tabVar()
+    ElseIf numTableau = 17 Then
+        tabPrimaryDMGovFunds = tabVar()
+    ElseIf numTableau = 18 Then
+        tabPrimaryDMCredFunds = tabVar()
+    ElseIf numTableau = 19 Then
+        tabPrimaryEMGovHardFunds = tabVar()
+    ElseIf numTableau = 20 Then
+        tabPrimaryEMGovLocalFunds = tabVar()
+    ElseIf numTableau = 21 Then
+        tabPrimaryEMGovFunds = tabVar()
+    ElseIf numTableau = 22 Then
+        tabPrimaryEMCredHardFunds = tabVar()
+    ElseIf numTableau = 23 Then
+        tabPrimaryEMCredLocalFunds = tabVar()
+    ElseIf numTableau = 24 Then
+        tabPrimaryEMCredFunds = tabVar()
+    ElseIf numTableau = 25 Then
+        tabPrimaryDMGovMandates = tabVar()
+    ElseIf numTableau = 26 Then
+        tabPrimaryDMCredMandates = tabVar()
+    ElseIf numTableau = 27 Then
+        tabPrimaryEMGovHardMandates = tabVar()
+    ElseIf numTableau = 28 Then
+        tabPrimaryEMGovLocalMandates = tabVar()
+    ElseIf numTableau = 29 Then
+        tabPrimaryEMGovMandates = tabVar()
+    ElseIf numTableau = 30 Then
+        tabPrimaryEMCredHardMandates = tabVar()
+    ElseIf numTableau = 31 Then
+        tabPrimaryEMCredLocalMandates = tabVar()
+    ElseIf numTableau = 32 Then
+        tabPrimaryEMCredMandates = tabVar()
+    End If
+    
+    If numTableau = 5 Or numTableau = 8 Or numTableau = 13 Or numTableau = 16 Or numTableau = 21 Or numTableau = 24 Or numTableau = 29 Or numTableau = 32 Then
+        secondPassage = True
+        GoTo recommencer
+    End If
+Next
+
+End Sub
+
+Sub tableauSecAndPrimConso()
+
+Dim a As Long, b As Long
+Dim c As Integer
+Dim f As Long
+Dim trouve As Boolean
+Dim tabVar1() As secondaryMarket
+Dim tabVar2() As secondaryMarket
+Dim tabVar3() As secondaryMarket
+
+ReDim tabVar1(1 To 1)
+ReDim tabVar2(1 To 1)
+ReDim tabVar3(1 To 1)
+
+For c = 1 To 20
+    
+    If c = 1 Then
+        tabVar2() = tabSecondaryDMGovFunds()
+        tabVar3() = tabSecondaryDMGovMandates()
+        tabVar1() = tabVar2()
+    ElseIf c = 2 Then
+        tabVar2() = tabSecondaryDMCredFunds()
+        tabVar3() = tabSecondaryDMCredMandates()
+        tabVar1() = tabVar2()
+    ElseIf c = 3 Then
+        tabVar2() = tabSecondaryEMGovHardFunds()
+        tabVar3() = tabSecondaryEMGovHardMandates()
+        tabVar1() = tabVar2()
+    ElseIf c = 4 Then
+        tabVar2() = tabSecondaryEMGovLocalFunds()
+        tabVar3() = tabSecondaryEMGovLocalMandates()
+        tabVar1() = tabVar2()
+    ElseIf c = 5 Then
+        tabVar2() = tabSecondaryEMGovFunds()
+        tabVar3() = tabSecondaryEMGovMandates()
+        tabVar1() = tabVar2()
+    ElseIf c = 6 Then
+        tabVar2() = tabSecondaryEMCredHardFunds()
+        tabVar3() = tabSecondaryEMCredHardMandates()
+        tabVar1() = tabVar2()
+    ElseIf c = 7 Then
+        tabVar2() = tabSecondaryEMCredLocalFunds()
+        tabVar3() = tabSecondaryEMCredLocalMandates()
+        tabVar1() = tabVar2()
+    ElseIf c = 8 Then
+        tabVar2() = tabSecondaryEMCredFunds()
+        tabVar3() = tabSecondaryEMCredMandates()
+        tabVar1() = tabVar2()
+    ElseIf c = 9 Then
+        tabVar2() = tabSecondaryConsoDMGov()
+        tabVar3() = tabSecondaryConsoEMGov()
+        tabVar1() = tabVar2()
+    ElseIf c = 10 Then
+        tabVar2() = tabSecondaryConsoDMCred()
+        tabVar3() = tabSecondaryConsoEMCred()
+        tabVar1() = tabVar2()
+    ElseIf c = 11 Then
+        tabVar2() = tabPrimaryDMGovFunds()
+        tabVar3() = tabPrimaryDMGovMandates()
+        tabVar1() = tabVar2()
+    ElseIf c = 12 Then
+        tabVar2() = tabPrimaryDMCredFunds()
+        tabVar3() = tabPrimaryDMCredMandates()
+        tabVar1() = tabVar2()
+    ElseIf c = 13 Then
+        tabVar2() = tabPrimaryEMGovHardFunds()
+        tabVar3() = tabPrimaryEMGovHardMandates()
+        tabVar1() = tabVar2()
+    ElseIf c = 14 Then
+        tabVar2() = tabPrimaryEMGovLocalFunds()
+        tabVar3() = tabPrimaryEMGovLocalMandates()
+        tabVar1() = tabVar2()
+    ElseIf c = 15 Then
+        tabVar2() = tabPrimaryEMGovFunds()
+        tabVar3() = tabPrimaryEMGovMandates()
+        tabVar1() = tabVar2()
+    ElseIf c = 16 Then
+        tabVar2() = tabPrimaryEMCredHardFunds()
+        tabVar3() = tabPrimaryEMCredHardMandates()
+        tabVar1() = tabVar2()
+    ElseIf c = 17 Then
+        tabVar2() = tabPrimaryEMCredLocalFunds()
+        tabVar3() = tabPrimaryEMCredLocalMandates()
+        tabVar1() = tabVar2()
+    ElseIf c = 18 Then
+        tabVar2() = tabPrimaryEMCredFunds()
+        tabVar3() = tabPrimaryEMCredMandates()
+        tabVar1() = tabVar2()
+    ElseIf c = 19 Then
+        tabVar2() = tabPrimaryConsoDMGov()
+        tabVar3() = tabPrimaryConsoEMGov()
+        tabVar1() = tabVar2()
+    ElseIf c = 20 Then
+        tabVar2() = tabPrimaryConsoDMCred()
+        tabVar3() = tabPrimaryConsoEMCred()
+        tabVar1() = tabVar2()
+    End If
+    
+    For a = 1 To UBound(tabVar3)
+        trouve = False
+        For b = 1 To UBound(tabVar1)
+            If tabVar3(a).broker = tabVar1(b).broker Then
+                trouve = True
+                tabVar1(b).tiering = tabVar3(a).tiering
+                tabVar1(b).amtDone = tabVar1(b).amtDone + tabVar3(a).amtDone
+                If c < 11 Then
+                    tabVar1(b).amtReq = tabVar1(b).amtReq + tabVar3(a).amtReq
+                End If
+                tabVar1(b).dealDone = tabVar1(b).dealDone + tabVar3(a).dealDone
+                If c < 11 Then
+                    tabVar1(b).dealReq = tabVar1(b).dealReq + tabVar3(a).dealReq
+                End If
+            End If
+        Next
+        
+        If trouve = False Then
+            If tabVar3(a).broker <> "" Then
+                f = UBound(tabVar1) + 1
+                ReDim Preserve tabVar1(1 To f)
+                tabVar1(f).broker = tabVar3(a).broker
+                tabVar1(f).tiering = tabVar3(a).tiering
+                tabVar1(f).amtDone = tabVar3(a).amtDone
+                If c < 11 Then
+                    tabVar1(f).amtReq = tabVar3(a).amtReq
+                End If
+                tabVar1(f).dealDone = tabVar3(a).dealDone
+                If c < 11 Then
+                    tabVar1(f).dealReq = tabVar3(a).dealReq
+                End If
+            End If
+        End If
+    Next
+    
+    If c = 1 Then
+        tabSecondaryConsoDMGov() = tabVar1()
+    ElseIf c = 2 Then
+        tabSecondaryConsoDMCred() = tabVar1()
+    ElseIf c = 3 Then
+        tabSecondaryConsoEMGovHard() = tabVar1()
+    ElseIf c = 4 Then
+        tabSecondaryConsoEMGovLocal() = tabVar1()
+    ElseIf c = 5 Then
+        tabSecondaryConsoEMGov() = tabVar1()
+    ElseIf c = 6 Then
+        tabSecondaryConsoEMCredHard() = tabVar1()
+    ElseIf c = 7 Then
+        tabSecondaryConsoEMCredLocal() = tabVar1()
+    ElseIf c = 8 Then
+        tabSecondaryConsoEMCred() = tabVar1()
+    ElseIf c = 9 Then
+        tabSecondaryConsoGov() = tabVar1()
+    ElseIf c = 10 Then
+        tabSecondaryConsoCred() = tabVar1()
+    ElseIf c = 11 Then
+        tabPrimaryConsoDMGov() = tabVar1()
+    ElseIf c = 12 Then
+        tabPrimaryConsoDMCred() = tabVar1()
+    ElseIf c = 13 Then
+        tabPrimaryConsoEMGovHard() = tabVar1()
+    ElseIf c = 14 Then
+        tabPrimaryConsoEMGovLocal() = tabVar1()
+    ElseIf c = 15 Then
+        tabPrimaryConsoEMGov() = tabVar1()
+    ElseIf c = 16 Then
+        tabPrimaryConsoEMCredHard() = tabVar1()
+    ElseIf c = 17 Then
+        tabPrimaryConsoEMCredLocal() = tabVar1()
+    ElseIf c = 18 Then
+        tabPrimaryConsoEMCred() = tabVar1()
+    ElseIf c = 19 Then
+        tabPrimaryConsoGov() = tabVar1()
+    ElseIf c = 20 Then
+        tabPrimaryConsoCred() = tabVar1()
+    End If
+Next
+
+End Sub
+
+Sub tabBrokersDealersTotalEM()
+
+Dim a As Long, b As Long
+Dim d As Integer
+Dim c As Long
+Dim trouve As Boolean
+
+Dim tabVar1() As secondaryMarket
+Dim tabVar2() As secondaryMarket
+Dim tabVar3() As secondaryMarket
+Dim tabVar4() As secondaryMarket
+
+ReDim tabVar1(1 To 1)
+ReDim tabVar2(1 To 1)
+ReDim tabVar3(1 To 1)
+ReDim tabVar4(1 To 1)
+
+ReDim tabTotalBrokerDealersEM(1 To 1)
+
+For d = 1 To 2
+
+    If d = 1 Then
+        tabVar1() = tabSecondaryConsoEMGov()
+        tabVar2() = tabSecondaryConsoEMCred()
+    ElseIf d = 2 Then
+        tabVar1() = tabPrimaryConsoEMGov()
+        tabVar2() = tabPrimaryConsoEMCred()
+    End If
+    
+    If d = 1 Then
+        For a = 1 To UBound(tabVar1)
+            ReDim Preserve tabTotalBrokerDealersEM(1 To a)
+            tabTotalBrokerDealersEM(a).broker = tabVar1(a).broker
+            
+            If d = 1 Then
+                tabTotalBrokerDealersEM(a).secondary = tabVar1(a).amtDone
+                tabTotalBrokerDealersEM(a).dealDoneSecondary = tabVar1(a).dealDone
+            ElseIf d = 2 Then
+                tabTotalBrokerDealersEM(a).primary = tabVar1(a).amtDone
+                tabTotalBrokerDealersEM(a).dealDonePrimary = tabVar1(a).dealDone
+            End If
+        Next
+    ElseIf d = 2 Then
+        For a = 1 To UBound(tabVar1)
+            trouve = False
+            For b = 1 To UBound(tabTotalBrokerDealersEM)
+                If tabVar1(a).broker = tabTotalBrokerDealersEM(b).broker Then
+                    If d = 1 Then
+                        tabTotalBrokerDealersEM(b).secondary = tabTotalBrokerDealersEM(b).secondary + tabVar1(a).amtDone
+                        tabTotalBrokerDealersEM(b).dealDoneSecondary = tabTotalBrokerDealersEM(b).dealDoneSecondary + tabVar1(a).dealDone
+                    ElseIf d = 2 Then
+                        tabTotalBrokerDealersEM(b).primary = tabTotalBrokerDealersEM(b).primary + tabVar1(a).amtDone
+                        tabTotalBrokerDealersEM(b).dealDonePrimary = tabTotalBrokerDealersEM(b).dealDonePrimary + tabVar1(a).dealDone
+                    End If
+                    
+                    trouve = True
+                End If
+            Next
+            
+            If trouve = False Then
+                If tabVar1(a).broker <> "" Then
+                    c = UBound(tabTotalBrokerDealersEM) + 1
+                    ReDim Preserve tabTotalBrokerDealersEM(1 To c)
+                    tabTotalBrokerDealersEM(c).broker = tabVar1(a).broker
+                    
+                    If d = 1 Then
+                        tabTotalBrokerDealersEM(c).secondary = tabVar1(a).amtDone
+                        tabTotalBrokerDealersEM(c).dealDoneSecondary = tabVar1(a).dealDone
+                    ElseIf d = 2 Then
+                        tabTotalBrokerDealersEM(c).primary = tabVar1(a).amtDone
+                        tabTotalBrokerDealersEM(c).dealDonePrimary = tabVar1(a).dealDone
+                    End If
+                End If
+            End If
+        Next
+    End If
+    
+    For a = 1 To UBound(tabVar2)
+        trouve = False
+        For b = 1 To UBound(tabTotalBrokerDealersEM)
+            If tabVar2(a).broker = tabTotalBrokerDealersEM(b).broker Then
+                If d = 1 Then
+                    tabTotalBrokerDealersEM(b).secondary = tabTotalBrokerDealersEM(b).secondary + tabVar2(a).amtDone
+                    tabTotalBrokerDealersEM(b).dealDoneSecondary = tabTotalBrokerDealersEM(b).dealDoneSecondary + tabVar2(a).dealDone
+                ElseIf d = 2 Then
+                    tabTotalBrokerDealersEM(b).primary = tabTotalBrokerDealersEM(b).primary + tabVar2(a).amtDone
+                    tabTotalBrokerDealersEM(b).dealDonePrimary = tabTotalBrokerDealersEM(b).dealDonePrimary + tabVar2(a).dealDone
+                End If
+                
+                trouve = True
+            End If
+        Next
+        
+        If trouve = False Then
+            If tabVar2(a).broker <> "" Then
+                c = UBound(tabTotalBrokerDealersEM) + 1
+                ReDim Preserve tabTotalBrokerDealersEM(1 To c)
+                tabTotalBrokerDealersEM(c).broker = tabVar2(a).broker
+                
+                
+                If d = 1 Then
+                    tabTotalBrokerDealersEM(c).secondary = tabVar2(a).amtDone
+                    tabTotalBrokerDealersEM(c).dealDoneSecondary = tabVar2(a).dealDone
+                ElseIf d = 2 Then
+                    tabTotalBrokerDealersEM(c).primary = tabVar2(a).amtDone
+                    tabTotalBrokerDealersEM(c).dealDonePrimary = tabVar2(a).dealDone
+                End If
+            End If
+        End If
+    Next
+    
+Next
+
+
+End Sub
+
+Sub tabBrokersDealersTotalEMLocal()
+
+Dim a As Long, b As Long
+Dim d As Integer
+Dim c As Long
+Dim trouve As Boolean
+
+Dim tabVar1() As secondaryMarket
+Dim tabVar2() As secondaryMarket
+Dim tabVar3() As secondaryMarket
+Dim tabVar4() As secondaryMarket
+
+ReDim tabVar1(1 To 1)
+ReDim tabVar2(1 To 1)
+ReDim tabVar3(1 To 1)
+ReDim tabVar4(1 To 1)
+
+ReDim tabTotalBrokerDealersEMLocal(1 To 1)
+
+For d = 1 To 2
+
+    If d = 1 Then
+        tabVar1() = tabSecondaryConsoEMGovLocal()
+        tabVar2() = tabSecondaryConsoEMCredLocal()
+    ElseIf d = 2 Then
+        tabVar1() = tabPrimaryConsoEMGovLocal()
+        tabVar2() = tabPrimaryConsoEMCredLocal()
+    End If
+    
+    If d = 1 Then
+        For a = 1 To UBound(tabVar1)
+            ReDim Preserve tabTotalBrokerDealersEMLocal(1 To a)
+            tabTotalBrokerDealersEMLocal(a).broker = tabVar1(a).broker
+            
+            If d = 1 Then
+                tabTotalBrokerDealersEMLocal(a).secondary = tabVar1(a).amtDone
+                tabTotalBrokerDealersEMLocal(a).dealDoneSecondary = tabVar1(a).dealDone
+            ElseIf d = 2 Then
+                tabTotalBrokerDealersEMLocal(a).primary = tabVar1(a).amtDone
+                tabTotalBrokerDealersEMLocal(a).dealDonePrimary = tabVar1(a).dealDone
+            End If
+        Next
+    ElseIf d = 2 Then
+        For a = 1 To UBound(tabVar1)
+            trouve = False
+            For b = 1 To UBound(tabTotalBrokerDealersEMLocal)
+                If tabVar1(a).broker = tabTotalBrokerDealersEMLocal(b).broker Then
+                    If d = 1 Then
+                        tabTotalBrokerDealersEMLocal(b).secondary = tabTotalBrokerDealersEMLocal(b).secondary + tabVar1(a).amtDone
+                        tabTotalBrokerDealersEMLocal(b).dealDoneSecondary = tabTotalBrokerDealersEMLocal(b).dealDoneSecondary + tabVar1(a).dealDone
+                    ElseIf d = 2 Then
+                        tabTotalBrokerDealersEMLocal(b).primary = tabTotalBrokerDealersEMLocal(b).primary + tabVar1(a).amtDone
+                        tabTotalBrokerDealersEMLocal(b).dealDonePrimary = tabTotalBrokerDealersEMLocal(b).dealDonePrimary + tabVar1(a).dealDone
+                    End If
+                    
+                    trouve = True
+                End If
+            Next
+            
+            If trouve = False Then
+                If tabVar1(a).broker <> "" Then
+                    c = UBound(tabTotalBrokerDealersEMLocal) + 1
+                    ReDim Preserve tabTotalBrokerDealersEMLocal(1 To c)
+                    tabTotalBrokerDealersEMLocal(c).broker = tabVar1(a).broker
+                    
+                    If d = 1 Then
+                        tabTotalBrokerDealersEMLocal(c).secondary = tabVar1(a).amtDone
+                        tabTotalBrokerDealersEMLocal(c).dealDoneSecondary = tabVar1(a).dealDone
+                    ElseIf d = 2 Then
+                        tabTotalBrokerDealersEMLocal(c).primary = tabVar1(a).amtDone
+                        tabTotalBrokerDealersEMLocal(c).dealDonePrimary = tabVar1(a).dealDone
+                    End If
+                End If
+            End If
+        Next
+    End If
+    
+    For a = 1 To UBound(tabVar2)
+        trouve = False
+        For b = 1 To UBound(tabTotalBrokerDealersEMLocal)
+            If tabVar2(a).broker = tabTotalBrokerDealersEMLocal(b).broker Then
+                If d = 1 Then
+                    tabTotalBrokerDealersEMLocal(b).secondary = tabTotalBrokerDealersEMLocal(b).secondary + tabVar2(a).amtDone
+                    tabTotalBrokerDealersEMLocal(b).dealDoneSecondary = tabTotalBrokerDealersEMLocal(b).dealDoneSecondary + tabVar2(a).dealDone
+                ElseIf d = 2 Then
+                    tabTotalBrokerDealersEMLocal(b).primary = tabTotalBrokerDealersEMLocal(b).primary + tabVar2(a).amtDone
+                    tabTotalBrokerDealersEMLocal(b).dealDonePrimary = tabTotalBrokerDealersEMLocal(b).dealDonePrimary + tabVar2(a).dealDone
+                End If
+                
+                trouve = True
+            End If
+        Next
+        
+        If trouve = False Then
+            If tabVar2(a).broker <> "" Then
+                c = UBound(tabTotalBrokerDealersEMLocal) + 1
+                ReDim Preserve tabTotalBrokerDealersEMLocal(1 To c)
+                tabTotalBrokerDealersEMLocal(c).broker = tabVar2(a).broker
+                
+                If d = 1 Then
+                    tabTotalBrokerDealersEMLocal(c).secondary = tabVar2(a).amtDone
+                    tabTotalBrokerDealersEMLocal(c).dealDoneSecondary = tabVar2(a).dealDone
+                ElseIf d = 2 Then
+                    tabTotalBrokerDealersEMLocal(c).primary = tabVar2(a).amtDone
+                    tabTotalBrokerDealersEMLocal(c).dealDonePrimary = tabVar2(a).dealDone
+                End If
+            End If
+        End If
+    Next
+    
+Next
+
+End Sub
+
+Sub tabBrokersDealersTotalEMHard()
+
+Dim a As Long, b As Long
+Dim d As Integer
+Dim c As Long
+Dim trouve As Boolean
+
+Dim tabVar1() As secondaryMarket
+Dim tabVar2() As secondaryMarket
+Dim tabVar3() As secondaryMarket
+Dim tabVar4() As secondaryMarket
+
+ReDim tabVar1(1 To 1)
+ReDim tabVar2(1 To 1)
+ReDim tabVar3(1 To 1)
+ReDim tabVar4(1 To 1)
+
+ReDim tabTotalBrokerDealersEMHard(1 To 1)
+
+For d = 1 To 2
+
+    If d = 1 Then
+        tabVar1() = tabSecondaryConsoEMGovHard()
+        tabVar2() = tabSecondaryConsoEMCredHard()
+    ElseIf d = 2 Then
+        tabVar1() = tabPrimaryConsoEMGovHard()
+        tabVar2() = tabPrimaryConsoEMCredHard()
+    End If
+    
+    If d = 1 Then
+        For a = 1 To UBound(tabVar1)
+            ReDim Preserve tabTotalBrokerDealersEMHard(1 To a)
+            tabTotalBrokerDealersEMHard(a).broker = tabVar1(a).broker
+            
+            If d = 1 Then
+                tabTotalBrokerDealersEMHard(a).secondary = tabVar1(a).amtDone
+                tabTotalBrokerDealersEMHard(a).dealDoneSecondary = tabVar1(a).dealDone
+            ElseIf d = 2 Then
+                tabTotalBrokerDealersEMHard(a).primary = tabVar1(a).amtDone
+                tabTotalBrokerDealersEMHard(a).dealDonePrimary = tabVar1(a).dealDone
+            End If
+        Next
+    ElseIf d = 2 Then
+        For a = 1 To UBound(tabVar1)
+            trouve = False
+            For b = 1 To UBound(tabTotalBrokerDealersEMHard)
+                If tabVar1(a).broker = tabTotalBrokerDealersEMHard(b).broker Then
+                    If d = 1 Then
+                        tabTotalBrokerDealersEMHard(b).secondary = tabTotalBrokerDealersEMHard(b).secondary + tabVar1(a).amtDone
+                        tabTotalBrokerDealersEMHard(b).dealDonePrimary = tabTotalBrokerDealersEMHard(b).dealDonePrimary + tabVar1(a).dealDone
+                    ElseIf d = 2 Then
+                        tabTotalBrokerDealersEMHard(b).primary = tabTotalBrokerDealersEMHard(b).primary + tabVar1(a).amtDone
+                        tabTotalBrokerDealersEMHard(b).dealDonePrimary = tabTotalBrokerDealersEMHard(b).dealDonePrimary + tabVar1(a).dealDone
+                    End If
+                    
+                    trouve = True
+                End If
+            Next
+            
+            If trouve = False Then
+                If tabVar1(a).broker <> "" Then
+                    c = UBound(tabTotalBrokerDealersEMHard) + 1
+                    ReDim Preserve tabTotalBrokerDealersEMHard(1 To c)
+                    tabTotalBrokerDealersEMHard(c).broker = tabVar1(a).broker
+                    
+                    If d = 1 Then
+                        tabTotalBrokerDealersEMHard(c).secondary = tabVar1(a).amtDone
+                        tabTotalBrokerDealersEMHard(c).dealDoneSecondary = tabVar1(a).dealDone
+                    ElseIf d = 2 Then
+                        tabTotalBrokerDealersEMHard(c).primary = tabVar1(a).amtDone
+                        tabTotalBrokerDealersEMHard(c).dealDonePrimary = tabVar1(a).dealDone
+                    End If
+                End If
+            End If
+        Next
+    End If
+    
+    For a = 1 To UBound(tabVar2)
+        trouve = False
+        For b = 1 To UBound(tabTotalBrokerDealersEMHard)
+            If tabVar2(a).broker = tabTotalBrokerDealersEMHard(b).broker Then
+                If d = 1 Then
+                    tabTotalBrokerDealersEMHard(b).secondary = tabTotalBrokerDealersEMHard(b).secondary + tabVar2(a).amtDone
+                    tabTotalBrokerDealersEMHard(b).dealDoneSecondary = tabTotalBrokerDealersEMHard(b).dealDoneSecondary + tabVar2(a).dealDone
+                ElseIf d = 2 Then
+                    tabTotalBrokerDealersEMHard(b).primary = tabTotalBrokerDealersEMHard(b).primary + tabVar2(a).amtDone
+                    tabTotalBrokerDealersEMHard(b).dealDonePrimary = tabTotalBrokerDealersEMHard(b).dealDonePrimary + tabVar2(a).dealDone
+                End If
+                
+                trouve = True
+            End If
+        Next
+        
+        If trouve = False Then
+            If tabVar2(a).broker <> "" Then
+                c = UBound(tabTotalBrokerDealersEMHard) + 1
+                ReDim Preserve tabTotalBrokerDealersEMHard(1 To c)
+                tabTotalBrokerDealersEMHard(c).broker = tabVar2(a).broker
+                
+                
+                If d = 1 Then
+                    tabTotalBrokerDealersEMHard(c).secondary = tabVar2(a).amtDone
+                    tabTotalBrokerDealersEMHard(c).dealDoneSecondary = tabVar2(a).dealDone
+                ElseIf d = 2 Then
+                    tabTotalBrokerDealersEMHard(c).primary = tabVar2(a).amtDone
+                    tabTotalBrokerDealersEMHard(c).dealDonePrimary = tabVar2(a).dealDone
+                End If
+            End If
+        End If
+    Next
+    
+Next
+
+End Sub
+
+Sub tabBrokersDealersTotal()
+
+Dim a As Long, b As Long
+Dim d As Integer
+Dim c As Long
+Dim trouve As Boolean
+
+Dim tabVar1() As secondaryMarket
+Dim tabVar2() As secondaryMarket
+Dim tabVar3() As secondaryMarket
+Dim tabVar4() As secondaryMarket
+
+ReDim tabVar1(1 To 1)
+ReDim tabVar2(1 To 1)
+ReDim tabVar3(1 To 1)
+ReDim tabVar4(1 To 1)
+
+ReDim tabTotalBrokerDealers(1 To 1)
+
+For d = 1 To 2
+
+    If d = 1 Then
+        tabVar1() = tabSecondaryConsoGov()
+        tabVar2() = tabSecondaryConsoCred()
+    ElseIf d = 2 Then
+        tabVar1() = tabPrimaryConsoGov()
+        tabVar2() = tabPrimaryConsoCred()
+    End If
+    
+    If d = 1 Then
+        For a = 1 To UBound(tabVar1)
+            ReDim Preserve tabTotalBrokerDealers(1 To a)
+            tabTotalBrokerDealers(a).broker = tabVar1(a).broker
+            
+            If d = 1 Then
+                tabTotalBrokerDealers(a).secondary = tabVar1(a).amtDone
+                tabTotalBrokerDealers(a).dealDoneSecondary = tabVar1(a).dealDone
+            ElseIf d = 2 Then
+                tabTotalBrokerDealers(a).primary = tabVar1(a).amtDone
+                tabTotalBrokerDealers(a).dealDonePrimary = tabVar1(a).dealDone
+            End If
+        Next
+    ElseIf d = 2 Then
+        For a = 1 To UBound(tabVar1)
+            trouve = False
+            For b = 1 To UBound(tabTotalBrokerDealers)
+                If tabVar1(a).broker = tabTotalBrokerDealers(b).broker Then
+                    If d = 1 Then
+                        tabTotalBrokerDealers(b).secondary = tabTotalBrokerDealers(b).secondary + tabVar1(a).amtDone
+                        tabTotalBrokerDealers(b).dealDoneSecondary = tabTotalBrokerDealers(b).dealDoneSecondary + tabVar1(a).dealDone
+                    ElseIf d = 2 Then
+                        tabTotalBrokerDealers(b).primary = tabTotalBrokerDealers(b).primary + tabVar1(a).amtDone
+                        tabTotalBrokerDealers(b).dealDonePrimary = tabTotalBrokerDealers(b).dealDonePrimary + tabVar1(a).dealDone
+                    End If
+                    
+                    trouve = True
+                End If
+            Next
+            
+            If trouve = False Then
+                If tabVar1(a).broker <> "" Then
+                    c = UBound(tabTotalBrokerDealers) + 1
+                    ReDim Preserve tabTotalBrokerDealers(1 To c)
+                    tabTotalBrokerDealers(c).broker = tabVar1(a).broker
+                    
+                    If d = 1 Then
+                        tabTotalBrokerDealers(c).secondary = tabVar1(a).amtDone
+                        tabTotalBrokerDealers(c).dealDoneSecondary = tabVar1(a).dealDone
+                    ElseIf d = 2 Then
+                        tabTotalBrokerDealers(c).primary = tabVar1(a).amtDone
+                        tabTotalBrokerDealers(c).dealDonePrimary = tabVar1(a).dealDone
+                    End If
+                End If
+            End If
+        Next
+    End If
+    
+    For a = 1 To UBound(tabVar2)
+        trouve = False
+        For b = 1 To UBound(tabTotalBrokerDealers)
+            If tabVar2(a).broker = tabTotalBrokerDealers(b).broker Then
+                If d = 1 Then
+                    tabTotalBrokerDealers(b).secondary = tabTotalBrokerDealers(b).secondary + tabVar2(a).amtDone
+                    tabTotalBrokerDealers(b).dealDoneSecondary = tabTotalBrokerDealers(b).dealDoneSecondary + tabVar2(a).dealDone
+                ElseIf d = 2 Then
+                    tabTotalBrokerDealers(b).primary = tabTotalBrokerDealers(b).primary + tabVar2(a).amtDone
+                    tabTotalBrokerDealers(b).dealDonePrimary = tabTotalBrokerDealers(b).dealDonePrimary + tabVar2(a).dealDone
+                End If
+                
+                trouve = True
+            End If
+        Next
+        
+        If trouve = False Then
+            If tabVar2(a).broker <> "" Then
+                c = UBound(tabTotalBrokerDealers) + 1
+                ReDim Preserve tabTotalBrokerDealers(1 To c)
+                tabTotalBrokerDealers(c).broker = tabVar2(a).broker
+                
+                
+                If d = 1 Then
+                    tabTotalBrokerDealers(c).secondary = tabVar2(a).amtDone
+                    tabTotalBrokerDealers(c).dealDoneSecondary = tabVar2(a).dealDone
+                ElseIf d = 2 Then
+                    tabTotalBrokerDealers(c).primary = tabVar2(a).amtDone
+                    tabTotalBrokerDealers(c).dealDonePrimary = tabVar2(a).dealDone
+                End If
+            End If
+        End If
+    Next
+    
+Next
+
+End Sub
+
+Sub tabEMOnlyLocal()
+
+Dim a As Long, b As Long
+Dim numBroker As Long
+Dim trouve As Boolean
+Dim premierPassage As Boolean
+
+ReDim Preserve EMOnlyAmtLocal(1 To 1)
+
+For a = 1 To UBound(transaction)
+    If rechercheTradeEM(transaction(a).issuer, transaction(a).businessUnit) = True Then
+        If transaction(a).businessUnit <> "Mandates" Then
+            If transaction(a).localCcy = True Then
+                trouve = False
+                For b = 1 To UBound(EMOnlyAmtLocal)
+                    If EMOnlyAmtLocal(1).country <> "" Then
+                        If transaction(a).issuer = EMOnlyAmtLocal(b).country Then
+                            trouve = True
+                            numBroker = b
+                        End If
+                    Else
+                        trouve = True
+                        EMOnlyAmtLocal(1).country = transaction(a).issuer
+                        numBroker = 1
+                    End If
+                Next
+                
+                If trouve = False Then
+                    numBroker = UBound(EMOnlyAmtLocal) + 1
+                    ReDim Preserve EMOnlyAmtLocal(1 To numBroker)
+                    EMOnlyAmtLocal(numBroker).country = transaction(a).issuer
+                End If
+                
+                If transaction(a).buy = True Then
+                    If transaction(a).govies = True Then
+                        EMOnlyAmtLocal(numBroker).amtBuyGov = EMOnlyAmtLocal(numBroker).amtBuyGov + transaction(a).grossAmount
+                    Else
+                        EMOnlyAmtLocal(numBroker).amtBuyCorp = EMOnlyAmtLocal(numBroker).amtBuyCorp + transaction(a).grossAmount
+                    End If
+                Else
+                    If transaction(a).govies = True Then
+                        EMOnlyAmtLocal(numBroker).amtSellGov = EMOnlyAmtLocal(numBroker).amtSellGov + transaction(a).grossAmount
+                    Else
+                        EMOnlyAmtLocal(numBroker).amtSellCorp = EMOnlyAmtLocal(numBroker).amtSellCorp + transaction(a).grossAmount
+                    End If
+                End If
+            End If
+        End If
+    End If
+Next
+
+End Sub
+
+Sub tabEMOnlyHard()
+
+Dim a As Long, b As Long
+Dim numBroker As Long
+Dim trouve As Boolean
+Dim premierPassage As Boolean
+
+ReDim Preserve EMOnlyAmtHard(1 To 1)
+
+For a = 1 To UBound(transaction)
+    If rechercheTradeEM(transaction(a).issuer, transaction(a).businessUnit) = True Then
+        If transaction(a).businessUnit <> "Mandates" Then
+            If transaction(a).localCcy = False Then
+                trouve = False
+                For b = 1 To UBound(EMOnlyAmtHard)
+                    If EMOnlyAmtHard(1).country <> "" Then
+                        If transaction(a).issuer = EMOnlyAmtHard(b).country Then
+                            trouve = True
+                            numBroker = b
+                        End If
+                    Else
+                        trouve = True
+                        EMOnlyAmtHard(1).country = transaction(a).issuer
+                        numBroker = 1
+                    End If
+                Next
+                
+                If trouve = False Then
+                    numBroker = UBound(EMOnlyAmtHard) + 1
+                    ReDim Preserve EMOnlyAmtHard(1 To numBroker)
+                    EMOnlyAmtHard(numBroker).country = transaction(a).issuer
+                End If
+                
+                If transaction(a).buy = True Then
+                    If transaction(a).govies = True Then
+                        EMOnlyAmtHard(numBroker).amtBuyGov = EMOnlyAmtHard(numBroker).amtBuyGov + transaction(a).grossAmount
+                    Else
+                        EMOnlyAmtHard(numBroker).amtBuyCorp = EMOnlyAmtHard(numBroker).amtBuyCorp + transaction(a).grossAmount
+                    End If
+                Else
+                    If transaction(a).govies = True Then
+                        EMOnlyAmtHard(numBroker).amtSellGov = EMOnlyAmtHard(numBroker).amtSellGov + transaction(a).grossAmount
+                    Else
+                        EMOnlyAmtHard(numBroker).amtSellCorp = EMOnlyAmtHard(numBroker).amtSellCorp + transaction(a).grossAmount
+                    End If
+                End If
+            End If
+        End If
+    End If
+Next
+
+End Sub
+
+Sub tabEMOnly()
+
+Dim a As Long, b As Long
+Dim numBroker As Long
+Dim trouve As Boolean
+Dim premierPassage As Boolean
+
+ReDim Preserve EMOnlyAmt(1 To 1)
+
+For a = 1 To UBound(transaction)
+    If rechercheTradeEM(transaction(a).issuer, transaction(a).businessUnit) = True Then
+        If transaction(a).businessUnit <> "Mandates" Then
+            trouve = False
+            For b = 1 To UBound(EMOnlyAmt)
+                If EMOnlyAmt(1).country <> "" Then
+                    If transaction(a).issuer = EMOnlyAmt(b).country Then
+                        trouve = True
+                        numBroker = b
+                    End If
+                Else
+                    trouve = True
+                    EMOnlyAmt(1).country = transaction(a).issuer
+                    numBroker = 1
+                End If
+            Next
+            
+            If trouve = False Then
+                numBroker = UBound(EMOnlyAmt) + 1
+                ReDim Preserve EMOnlyAmt(1 To numBroker)
+                EMOnlyAmt(numBroker).country = transaction(a).issuer
+            End If
+            
+            If transaction(a).buy = True Then
+                If transaction(a).govies = True Then
+                    EMOnlyAmt(numBroker).amtBuyGov = EMOnlyAmt(numBroker).amtBuyGov + transaction(a).grossAmount
+                Else
+                    EMOnlyAmt(numBroker).amtBuyCorp = EMOnlyAmt(numBroker).amtBuyCorp + transaction(a).grossAmount
+                End If
+            Else
+                If transaction(a).govies = True Then
+                    EMOnlyAmt(numBroker).amtSellGov = EMOnlyAmt(numBroker).amtSellGov + transaction(a).grossAmount
+                Else
+                    EMOnlyAmt(numBroker).amtSellCorp = EMOnlyAmt(numBroker).amtSellCorp + transaction(a).grossAmount
+                End If
+            End If
+        End If
+    End If
+Next
+
+End Sub
+
+Sub tabCountry()
+
+Dim a As Long, b As Long
+Dim numBroker As Long
+Dim trouve As Boolean
+Dim premierPassage As Boolean
+
+ReDim Preserve countryAmt(1 To 1)
+
+For a = 1 To UBound(transaction)
+    trouve = False
+    For b = 1 To UBound(countryAmt)
+        If countryAmt(1).country <> "" Then
+            If transaction(a).issuer = countryAmt(b).country Then
+                trouve = True
+                numBroker = b
+            End If
+        Else
+            trouve = True
+            countryAmt(1).country = transaction(a).issuer
+            numBroker = 1
+        End If
+    Next
+    
+    If trouve = False Then
+        numBroker = UBound(countryAmt) + 1
+        ReDim Preserve countryAmt(1 To numBroker)
+        countryAmt(numBroker).country = transaction(a).issuer
+    End If
+    
+    If transaction(a).buy = True Then
+        If transaction(a).govies = True Then
+            countryAmt(numBroker).amtBuyGov = countryAmt(numBroker).amtBuyGov + transaction(a).grossAmount
+        Else
+            If transaction(a).financial = True Then
+                countryAmt(numBroker).amtBuyFin = countryAmt(numBroker).amtBuyFin + transaction(a).grossAmount
+            Else
+                countryAmt(numBroker).amtBuyCorp = countryAmt(numBroker).amtBuyCorp + transaction(a).grossAmount
+            End If
+        End If
+    Else
+        If transaction(a).govies = True Then
+            countryAmt(numBroker).amtSellGov = countryAmt(numBroker).amtSellGov + transaction(a).grossAmount
+        Else
+            If transaction(a).financial = True Then
+                countryAmt(numBroker).amtSellFin = countryAmt(numBroker).amtSellFin + transaction(a).grossAmount
+            Else
+                countryAmt(numBroker).amtSellCorp = countryAmt(numBroker).amtSellCorp + transaction(a).grossAmount
+            End If
+        End If
+    End If
+Next
+
+End Sub
+
+Sub tabSegment()
+
+Dim a As Long, b As Long
+Dim numBroker As Long
+Dim trouve As Boolean
+Dim premierPassage As Boolean
+
+ReDim Preserve segmentAmt(1 To 1)
+
+For a = 1 To UBound(transaction)
+    trouve = False
+    For b = 1 To UBound(segmentAmt)
+        If segmentAmt(1).segment <> "" Then
+            If transaction(a).segment = segmentAmt(b).segment Then
+                trouve = True
+                numBroker = b
+            End If
+        Else
+            trouve = True
+            segmentAmt(1).segment = transaction(a).segment
+            numBroker = 1
+        End If
+    Next
+    
+    If trouve = False Then
+        numBroker = UBound(segmentAmt) + 1
+        ReDim Preserve segmentAmt(1 To numBroker)
+        segmentAmt(numBroker).segment = transaction(a).segment
+    End If
+    
+    If transaction(a).buy = True Then
+        If transaction(a).govies = True Then
+            segmentAmt(numBroker).amtBuyGov = segmentAmt(numBroker).amtBuyGov + transaction(a).grossAmount
+        Else
+            If transaction(a).financial = True Then
+                segmentAmt(numBroker).amtBuyFin = segmentAmt(numBroker).amtBuyFin + transaction(a).grossAmount
+            Else
+                segmentAmt(numBroker).amtBuyCorp = segmentAmt(numBroker).amtBuyCorp + transaction(a).grossAmount
+            End If
+        End If
+    Else
+        If transaction(a).govies = True Then
+            segmentAmt(numBroker).amtSellGov = segmentAmt(numBroker).amtSellGov + transaction(a).grossAmount
+        Else
+            If transaction(a).financial = True Then
+                segmentAmt(numBroker).amtSellFin = segmentAmt(numBroker).amtSellFin + transaction(a).grossAmount
+            Else
+                segmentAmt(numBroker).amtSellCorp = segmentAmt(numBroker).amtSellCorp + transaction(a).grossAmount
+            End If
+        End If
+    End If
+Next
+
+
+End Sub
+
+Sub tabMaturity()
+
+Dim a As Long, b As Long
+
+For a = 1 To UBound(transaction)
+    If transaction(a).buy = True Then
+        If transaction(a).govies = True Then
+            If transaction(a).maturity < 17 Then
+                maturityAmt.buyGovMin = maturityAmt.buyGovMin + transaction(a).grossAmount
+            Else
+                maturityAmt.buyGovSup = maturityAmt.buyGovSup + transaction(a).grossAmount
+            End If
+        Else
+            If transaction(a).financial = True Then
+                If transaction(a).maturity < 7 Then
+                    maturityAmt.buyFinMin = maturityAmt.buyFinMin + transaction(a).grossAmount
+                Else
+                    maturityAmt.buyFinSup = maturityAmt.buyFinSup + transaction(a).grossAmount
+                End If
+            Else
+                If transaction(a).maturity < 7 Then
+                    maturityAmt.buyCorpMin = maturityAmt.buyCorpMin + transaction(a).grossAmount
+                Else
+                    maturityAmt.buyCorpSup = maturityAmt.buyCorpSup + transaction(a).grossAmount
+                End If
+            End If
+        End If
+    Else
+        If transaction(a).govies = True Then
+            If transaction(a).maturity < 17 Then
+                maturityAmt.sellGovMin = maturityAmt.sellGovMin + transaction(a).grossAmount
+            Else
+                maturityAmt.sellGovSup = maturityAmt.sellGovSup + transaction(a).grossAmount
+            End If
+        Else
+            If transaction(a).financial = True Then
+                If transaction(a).maturity < 7 Then
+                    maturityAmt.sellFinMin = maturityAmt.sellFinMin + transaction(a).grossAmount
+                Else
+                    maturityAmt.sellFinSup = maturityAmt.sellFinSup + transaction(a).grossAmount
+                End If
+            Else
+                If transaction(a).maturity < 7 Then
+                    maturityAmt.sellCorpMin = maturityAmt.sellCorpMin + transaction(a).grossAmount
+                Else
+                    maturityAmt.sellCorpSup = maturityAmt.sellCorpSup + transaction(a).grossAmount
+                End If
+            End If
+        End If
+    End If
+Next
+
+End Sub
+
+Sub tabOutstandingAmt()
+
+Dim a As Long, b As Long
+
+For a = 1 To UBound(transaction)
+    If transaction(a).buy = True Then
+        If transaction(a).govies = True Then
+            If transaction(a).issueQuantity < 5000000000# Then
+                outstandingAmt.buyGovMin = outstandingAmt.buyGovMin + transaction(a).grossAmount
+            Else
+                outstandingAmt.buyGovSup = outstandingAmt.buyGovSup + transaction(a).grossAmount
+            End If
+        Else
+            If transaction(a).financial = True Then
+                If transaction(a).issueQuantity < 750000000 Then
+                    outstandingAmt.buyFinMin = outstandingAmt.buyFinMin + transaction(a).grossAmount
+                Else
+                    outstandingAmt.buyFinSup = outstandingAmt.buyFinSup + transaction(a).grossAmount
+                End If
+            Else
+                If transaction(a).issueQuantity < 750000000 Then
+                    outstandingAmt.buyCorpMin = outstandingAmt.buyCorpMin + transaction(a).grossAmount
+                Else
+                    outstandingAmt.buyCorpSup = outstandingAmt.buyCorpSup + transaction(a).grossAmount
+                End If
+            End If
+        End If
+    Else
+        If transaction(a).govies = True Then
+            If transaction(a).issueQuantity < 5000000000# Then
+                outstandingAmt.sellGovMin = outstandingAmt.sellGovMin + transaction(a).grossAmount
+            Else
+                outstandingAmt.sellGovSup = outstandingAmt.sellGovSup + transaction(a).grossAmount
+            End If
+        Else
+            If transaction(a).financial = True Then
+                If transaction(a).issueQuantity < 750000000 Then
+                    outstandingAmt.sellFinMin = outstandingAmt.sellFinMin + transaction(a).grossAmount
+                Else
+                    outstandingAmt.sellFinSup = outstandingAmt.sellFinSup + transaction(a).grossAmount
+                End If
+            Else
+                If transaction(a).issueQuantity < 750000000 Then
+                    outstandingAmt.sellCorpMin = outstandingAmt.sellCorpMin + transaction(a).grossAmount
+                Else
+                    outstandingAmt.sellCorpSup = outstandingAmt.sellCorpSup + transaction(a).grossAmount
+                End If
+            End If
+        End If
+    End If
+Next
+
+End Sub
+
+Sub tabNominal()
+
+Dim a As Long, b As Long
+Dim c As Long, d As Long, e As Long, f As Long, g As Long
+Dim somme As Variant
+Dim collec() As String
+Dim doublon As Boolean, trouve As Boolean, present As Boolean, premierPassage As Boolean
+
+premierPassage = True
+ReDim Preserve collec(1 To 1)
+For a = 1 To UBound(transaction)
+    doublon = False
+    For b = 1 To UBound(transaction)
+        If a <> b Then
+            If transaction(a).orderID = transaction(b).orderID Then
+                doublon = True
+            End If
+        End If
+    Next
+    
+    trouve = False
+    If doublon = True Then
+        For d = 1 To UBound(collec)
+            If transaction(a).orderID = collec(d) Then
+                trouve = True
+            End If
+        Next
+        
+        If trouve = False Then
+            If premierPassage = False Then
+                e = UBound(collec) + 1
+                ReDim Preserve collec(1 To e)
+                collec(e) = transaction(a).orderID
+            Else
+                premierPassage = False
+                collec(1) = transaction(a).orderID
+            End If
+        End If
+    End If
+Next
+
+For a = 1 To UBound(transaction)
+    
+    somme = 0
+    present = False
+    For f = 1 To UBound(collec)
+        For g = 1 To UBound(transaction)
+            If transaction(a).orderID = transaction(g).orderID Then
+                If transaction(g).orderID = collec(f) Then
+                    present = True
+                    somme = somme + transaction(g).grossAmount
+                End If
+            End If
+        Next
+    Next
+    
+    If present = False Then
+        somme = transaction(a).grossAmount
+    End If
+    
+    If transaction(a).buy = True Then
+        If transaction(a).govies = True Then
+            If somme < 20000000 Then
+                nominalAmt.buyGovMin = nominalAmt.buyGovMin + transaction(a).grossAmount
+            Else
+                nominalAmt.buyGovSup = nominalAmt.buyGovSup + transaction(a).grossAmount
+            End If
+        Else
+            If transaction(a).financial = True Then
+                If somme < 3000000 Then
+                    nominalAmt.buyFinMin = nominalAmt.buyFinMin + transaction(a).grossAmount
+                Else
+                    nominalAmt.buyFinSup = nominalAmt.buyFinSup + transaction(a).grossAmount
+                End If
+            Else
+                If somme < 3000000 Then
+                    nominalAmt.buyCorpMin = nominalAmt.buyCorpMin + transaction(a).grossAmount
+                Else
+                    nominalAmt.buyCorpSup = nominalAmt.buyCorpSup + transaction(a).grossAmount
+                End If
+            End If
+        End If
+    Else
+        If transaction(a).govies = True Then
+            If somme < 20000000 Then
+                nominalAmt.sellGovMin = nominalAmt.sellGovMin + transaction(a).grossAmount
+            Else
+                nominalAmt.sellGovSup = nominalAmt.sellGovSup + transaction(a).grossAmount
+            End If
+        Else
+            If transaction(a).financial = True Then
+                If somme < 3000000 Then
+                    nominalAmt.sellFinMin = nominalAmt.sellFinMin + transaction(a).grossAmount
+                Else
+                    nominalAmt.sellFinSup = nominalAmt.sellFinSup + transaction(a).grossAmount
+                End If
+            Else
+                If somme < 3000000 Then
+                    nominalAmt.sellCorpMin = nominalAmt.sellCorpMin + transaction(a).grossAmount
+                Else
+                    nominalAmt.sellCorpSup = nominalAmt.sellCorpSup + transaction(a).grossAmount
+                End If
+            End If
+        End If
+    End If
+Next
+
+End Sub
+
+Sub tabTradingVenues()
+
+Dim a As Long, b As Long
+Dim numBroker As Long
+Dim trouve As Boolean
+Dim premierPassage As Boolean
+
+ReDim Preserve venues(1 To 1)
+
+For a = 1 To UBound(transaction)
+    trouve = False
+    For b = 1 To UBound(venues)
+        If venues(1).tdVenue <> "" Then
+            If transaction(a).tradingVenue = venues(b).tdVenue Then
+                trouve = True
+                numBroker = b
+            End If
+        Else
+            trouve = True
+            venues(1).tdVenue = transaction(a).tradingVenue
+            numBroker = 1
+        End If
+    Next
+    
+    If trouve = False Then
+        numBroker = UBound(venues) + 1
+        ReDim Preserve venues(1 To numBroker)
+        venues(numBroker).tdVenue = transaction(a).tradingVenue
+    End If
+    
+    If transaction(a).buy = True Then
+        If transaction(a).govies = True Then
+            venues(numBroker).amtBuyGov = venues(numBroker).amtBuyGov + transaction(a).grossAmount
+        Else
+            If transaction(a).financial = True Then
+                venues(numBroker).amtBuyFin = venues(numBroker).amtBuyFin + transaction(a).grossAmount
+            Else
+                venues(numBroker).amtBuyCorp = venues(numBroker).amtBuyCorp + transaction(a).grossAmount
+            End If
+        End If
+    Else
+        If transaction(a).govies = True Then
+            venues(numBroker).amtSellGov = venues(numBroker).amtSellGov + transaction(a).grossAmount
+        Else
+            If transaction(a).financial = True Then
+                venues(numBroker).amtSellFin = venues(numBroker).amtSellFin + transaction(a).grossAmount
+            Else
+                venues(numBroker).amtSellCorp = venues(numBroker).amtSellCorp + transaction(a).grossAmount
+            End If
+        End If
+    End If
+Next
+
+End Sub
+
+Sub tabCapitalStructure()
+
+Dim a As Long, b As Long
+Dim numBroker As Long
+Dim trouve As Boolean
+Dim premierPassage As Boolean
+
+ReDim Preserve instrumentCapitalStructure(1 To 1)
+
+For a = 1 To UBound(transaction)
+    trouve = False
+    For b = 1 To UBound(instrumentCapitalStructure)
+        If instrumentCapitalStructure(1).KStructure <> "" Then
+            If transaction(a).capitalStructure = instrumentCapitalStructure(b).KStructure Then
+                trouve = True
+                numBroker = b
+            End If
+        Else
+            trouve = True
+            instrumentCapitalStructure(1).KStructure = transaction(a).capitalStructure
+            numBroker = 1
+        End If
+    Next
+    
+    If trouve = False Then
+        numBroker = UBound(instrumentCapitalStructure) + 1
+        ReDim Preserve instrumentCapitalStructure(1 To numBroker)
+        instrumentCapitalStructure(numBroker).KStructure = transaction(a).capitalStructure
+    End If
+    
+    If transaction(a).buy = True Then
+        If transaction(a).govies = True Then
+            instrumentCapitalStructure(numBroker).amtBuyGov = instrumentCapitalStructure(numBroker).amtBuyGov + transaction(a).grossAmount
+        Else
+            If transaction(a).financial = True Then
+                instrumentCapitalStructure(numBroker).amtBuyFin = instrumentCapitalStructure(numBroker).amtBuyFin + transaction(a).grossAmount
+            Else
+                instrumentCapitalStructure(numBroker).amtBuyCorp = instrumentCapitalStructure(numBroker).amtBuyCorp + transaction(a).grossAmount
+            End If
+        End If
+    Else
+        If transaction(a).govies = True Then
+            instrumentCapitalStructure(numBroker).amtSellGov = instrumentCapitalStructure(numBroker).amtSellGov + transaction(a).grossAmount
+        Else
+            If transaction(a).financial = True Then
+                instrumentCapitalStructure(numBroker).amtSellFin = instrumentCapitalStructure(numBroker).amtSellFin + transaction(a).grossAmount
+            Else
+                instrumentCapitalStructure(numBroker).amtSellCorp = instrumentCapitalStructure(numBroker).amtSellCorp + transaction(a).grossAmount
+            End If
+        End If
+    End If
+Next
+
+End Sub
+
+Sub tableauBrokers()
+
+Dim derniereLigne As Integer
+Dim j As Long
+Dim k As Long
+Dim i As Integer
+Dim a As Long
+Dim trouve As Boolean
+Dim sommeAmount As Variant
+Dim sommeDeals As Variant
+
+Workbooks(wbTemplate).Worksheets(wsTemplate).Activate
+
+derniereLigne = Range("B20").End(xlDown).row
+ReDim Preserve chiffresBroker(1 To derniereLigne - 20, 12) '12 dimensions correspondant aux 12 tableaux avec des Hit Ratios.
+
+For a = 21 To derniereLigne
+    With chiffresBroker(a - 20)
+        .name = Range("B" & a)
+        .tiering = Range("C" & a)
+        For j = 1 To UBound(transaction)
+            If chiffresBroker(a - 20).name = transaction(j).broker Then
+                .nbDealsDone = .nbDealsDone + 1
+                .nbDealsRqt = .nbDealsRqt + 1
+                .amountRqt = .amountRqt + transaction(j).nominal
+                .amount = .amount + transaction(j).nominal
+            Else
+                For i = 1 To 5
+                    If chiffresBroker(a - 20).name = transaction(j).losingQuote(i) Then
+                        .nbDealsRqt = .nbDealsRqt + 1
+                        .amountRqt = .amountRqt + transaction(j).nominal
+                    End If
+                Next
+            End If
+        Next
+        If .amountRqt <> 0 Then
+            .hitAmt = .amount / .amountRqt
+        End If
+    End With
+Next
+
+For a = 21 To derniereLigne
+    sommeAmount = sommeAmount + chiffresBroker(a - 20).amount
+    sommeDeals = sommeDeals + chiffresBroker(a - 20).nbDealsDone
+    Debug.Print "Deals done pour " & chiffresBroker(a - 20).name & " :"; chiffresBroker(a - 20).nbDealsDone
+Next
+
+For a = 21 To derniereLigne
+    With chiffresBroker(a - 20)
+        If sommeAmount <> 0 Then
+            .mktShare = .amount / sommeAmount
+        End If
+        If sommeDeals <> 0 Then
+            .mktDeal = .nbDealsDone / sommeDeals
+        End If
+    End With
+Next
+
+End Sub
+
+Function conversionSecteurEconomique(secteur As String)
+
+Dim sector As String
+
+If secteur = "ENERGY" Then
+    sector = "Energy"
+ElseIf secteur = "MATERIALS" Then
+    sector = "Materials"
+ElseIf secteur = "INDUSTRIALS" Then
+    sector = "Industrials"
+ElseIf secteur = "CONSUMER DISCRETIONARY" Then
+    sector = "Consumer discretionary"
+ElseIf secteur = "CONSUMER STAPLES" Then
+    sector = "Consumer staples"
+ElseIf secteur = "HEALTH CARE" Then
+    sector = "Health care"
+ElseIf secteur = "FINANCIALS" Then
+    sector = "Financials"
+ElseIf secteur = "INFORMATION TECHNOLOGY" Then
+    sector = "Information technology"
+ElseIf secteur = "TELECOMMUNICATION SERVICES" Then
+    sector = "Telecommunication services"
+ElseIf secteur = "UTILITIES" Then
+    sector = "Utilities"
+End If
+
+conversionSecteurEconomique = sector
+
+End Function
+
+Function conversionTableBroker(code As String)
+
+Dim brokerName As String
+Dim trouve As Boolean
+Dim a As Long
+Dim derniereLigne As Long
+
+derniereLigne = Workbooks(wbTemplate).Worksheets(wsTemplate10).Range("M7").End(xlDown).row
+trouve = False
+For a = 8 To derniereLigne
+    If code = Workbooks(wbTemplate).Worksheets(wsTemplate10).Range("M" & a) Then
+        brokerName = Workbooks(wbTemplate).Worksheets(wsTemplate10).Range("N" & a)
+        trouve = True
+        Exit For
+    End If
+Next
+
+If trouve = False Then
+    If code <> "" Then
+        brokerName = InputBox("Please type the broker corresponding to this broker code: " & code & ". This broker will automatically be added to the broker code list in worksheet -tables-.", "Broker Name")
+        Workbooks(wbTemplate).Worksheets(wsTemplate10).Range("M" & derniereLigne + 1) = code
+        Workbooks(wbTemplate).Worksheets(wsTemplate10).Range("N" & derniereLigne + 1) = brokerName
+        Workbooks(wbTemplate).Worksheets(wsTemplate10).Range("L" & derniereLigne + 1) = Workbooks(wbTemplate).Worksheets(wsTemplate10).Range("L" & derniereLigne) + 1
+    End If
+End If
+
+conversionTableBroker = brokerName
+
+End Function
+
+Function rechercheMaturite(tradeDate As Date, maturityDate As Date)
+
+Dim a As Long
+Dim maturity As Variant
+Dim trouve As Boolean
+
+a = 0
+trouve = False
+
+If maturityDate > tradeDate Then
+    While trouve = False And a < 20000
+        If tradeDate + a = maturityDate Then
+            maturity = Application.WorksheetFunction.Round(a / 360, 2)
+            trouve = True
+        End If
+        a = a + 1
+    Wend
+    
+    If a > 19999 Then
+        maturity = 20
+    End If
+Else
+    maturity = "Expired"
+End If
+
+rechercheMaturite = maturity
+
+End Function
+
+Function rechercheBU(nbTransactions As Integer)
+
+Dim a As Long
+Dim derniereLigneCompte As Long, derniereLigneUser As Long
+Dim trouve As Boolean
+Dim category As String
+
+derniereLigneCompte = Workbooks(wbTemplate).Worksheets(wsTemplate10).Range("C7").End(xlDown).row
+derniereLigneUser = Workbooks(wbTemplate).Worksheets(wsTemplate10).Range("H7").End(xlDown).row
+
+trouve = False
+For a = 8 To derniereLigneCompte
+    If transaction(nbTransactions).account = Workbooks(wbTemplate).Worksheets(wsTemplate10).Range("C" & a) Then
+        category = Workbooks(wbTemplate).Worksheets(wsTemplate10).Range("D" & a)
+        trouve = True
+        Exit For
+    End If
+Next
+
+If trouve = False Then
+    For a = 8 To derniereLigneUser
+        If transaction(nbTransactions).manager = Workbooks(wbTemplate).Worksheets(wsTemplate10).Range("H" & a) Then
+            category = Workbooks(wbTemplate).Worksheets(wsTemplate10).Range("I" & a)
+            trouve = True
+            
+            Workbooks(wbTemplate).Worksheets(wsTemplate10).Range("C" & derniereLigneCompte + 1) = transaction(nbTransactions).account
+            Workbooks(wbTemplate).Worksheets(wsTemplate10).Range("D" & derniereLigneCompte + 1) = category
+            Workbooks(wbTemplate).Worksheets(wsTemplate10).Range("B" & derniereLigneCompte + 1) = Workbooks(wbTemplate).Worksheets(wsTemplate10).Range("B" & derniereLigneCompte) + 1
+            Exit For
+        End If
+    Next
+End If
+
+If trouve = False Then
+    category = InputBox("Please choose between Mandates, Funds or Emerging Market Debt for the following account: " & transaction(nbTransactions).account, "Account " & transaction(nbTransactions).account & " not found in the list!")
+    Workbooks(wbTemplate).Worksheets(wsTemplate10).Range("C" & derniereLigneCompte + 1) = transaction(nbTransactions).account
+    Workbooks(wbTemplate).Worksheets(wsTemplate10).Range("D" & derniereLigneCompte + 1) = category
+    Workbooks(wbTemplate).Worksheets(wsTemplate10).Range("B" & derniereLigneCompte + 1) = Workbooks(wbTemplate).Worksheets(wsTemplate10).Range("B" & derniereLigneCompte) + 1
+    
+    Workbooks(wbTemplate).Worksheets(wsTemplate10).Range("H" & derniereLigneUser + 1) = transaction(nbTransactions).manager
+    Workbooks(wbTemplate).Worksheets(wsTemplate10).Range("I" & derniereLigneUser + 1) = category
+    Workbooks(wbTemplate).Worksheets(wsTemplate10).Range("F" & derniereLigneUser + 1) = Workbooks(wbTemplate).Worksheets(wsTemplate10).Range("F" & derniereLigneUser) + 1
+End If
+
+rechercheBU = category
+
+End Function
+
+Function rechercheTiering(colTiering, numBroker, numTableau, tabVar() As secondaryMarket)
+
+Dim c As Long
+Dim tiering As String
+
+If numTableau <> 3 And numTableau <> 4 And numTableau <> 5 And numTableau <> 6 And numTableau <> 7 And numTableau <> 8 And numTableau <> 11 And numTableau <> 12 And numTableau <> 13 And numTableau <> 14 And numTableau <> 15 And numTableau <> 16 _
+   And numTableau <> 19 And numTableau <> 20 And numTableau <> 21 And numTableau <> 22 And numTableau <> 23 And numTableau <> 24 And numTableau <> 27 And numTableau <> 28 And numTableau <> 29 And numTableau <> 30 And numTableau <> 31 And numTableau <> 32 Then
+    For c = 8 To Workbooks(wbTemplate).Worksheets(wsTemplate10).Range(colTiering & 7).End(xlDown).row
+        If Workbooks(wbTemplate).Worksheets(wsTemplate10).Range(colTiering & c) = tabVar(numBroker).broker Then
+            tiering = Workbooks(wbTemplate).Worksheets(wsTemplate10).Range(colTiering & c).Offset(0, 1)
+        End If
+    Next
+End If
+
+rechercheTiering = tiering
+
+End Function
+
+Function rechercheTradingVenue(tdVen As String)
+
+Dim tradingVenue As String
+
+If tdVen = "" Then
+    tradingVenue = "Voice"
+ElseIf tdVen = "TSOX" Then
+    tradingVenue = "Bloomberg"
+ElseIf tdVen = "MARKETAXESS" Then
+    tradingVenue = "MarketAxess"
+ElseIf tdVen = "UBS_PIN_FI" Then
+    tradingVenue = "UBS Bond Port"
+ElseIf tdVen = "TRADEWEB_BE " Or tdVen = "TRADEWEB_BE" Then
+    tradingVenue = "Tradeweb"
+Else
+    tradingVenue = "Voice"
+End If
+
+rechercheTradingVenue = tradingVenue
+
+End Function
+
+Function rechercheSegment(seg As String)
+
+Dim instrumentSegment As String
+
+If seg = "Cash Instruments" Then
+    instrumentSegment = "Cash Instruments"
+ElseIf seg = "DOMESTIC" Then
+    instrumentSegment = "Domestic"
+ElseIf seg = "AGENCIES" Then
+    instrumentSegment = "Agencies"
+ElseIf seg = "LOCAL GOVERNMENTS" Then
+    instrumentSegment = "Local Governments"
+ElseIf seg = "SUPRANATIONAL" Then
+    instrumentSegment = "Supranational"
+ElseIf seg = "FOREIGN SOVEREIGN" Then
+    instrumentSegment = "Foreign Sovereign"
+ElseIf seg = "OTHER SUB-SOVEREIGNS" Then
+    instrumentSegment = "Other Sub-Sovereigns"
+ElseIf seg = "PUBLIC BANKS" Then
+    instrumentSegment = "Public Banks"
+ElseIf seg = "COVERED" Then
+    instrumentSegment = "Covered"
+ElseIf seg = "ASSET BACKED" Then
+    instrumentSegment = "Asset Backed"
+ElseIf seg = "MORTGAGE BACKED" Then
+    instrumentSegment = "Mortgage Backed"
+ElseIf seg = "CMBS" Then
+    instrumentSegment = "CMBS"
+ElseIf seg = "SECURITIZED" Then
+    instrumentSegment = "Securitized"
+ElseIf seg = "OTHER COLLATERALIZED" Then
+    instrumentSegment = "Other Collateralized"
+ElseIf seg = "ABCP" Then
+    instrumentSegment = "ABCP"
+ElseIf seg = "CDO" Then
+    instrumentSegment = "CDO"
+ElseIf seg = "FINANCIALS" Then
+    instrumentSegment = "Financials"
+ElseIf seg = "Others" Then
+    instrumentSegment = "Others"
+ElseIf seg = "BASIC MATERIALS" Then
+    instrumentSegment = "Basic Materials"
+ElseIf seg = "CONSUMER GOODS" Then
+    instrumentSegment = "Consumer Goods"
+ElseIf seg = "CONSUMER SERVICES" Then
+    instrumentSegment = "Consumer Services"
+ElseIf seg = "HEALTH CARE" Then
+    instrumentSegment = "Health Care"
+ElseIf seg = "INDUSTRIALS" Then
+    instrumentSegment = "Industrials"
+ElseIf seg = "TECHNOLOGY" Then
+    instrumentSegment = "Technology"
+ElseIf seg = "TELECOMMUNICATIONS" Then
+    instrumentSegment = "Telecommunications"
+ElseIf seg = "UTILITIES" Then
+    instrumentSegment = "Utilities"
+ElseIf seg = "OIL & GAS" Then
+    instrumentSegment = "Oil & Gas"
+Else
+    instrumentSegment = "Others"
+End If
+
+rechercheSegment = instrumentSegment
+
+End Function
+
+Function rechercheIssuer(pays As String, securityName As String)
+
+Dim nomPays As String
+
+If pays = "Korea Republic of" Then
+    nomPays = "South Korea"
+ElseIf pays = "Kazakstan" Then
+    nomPays = "Kazakhstan"
+ElseIf pays = "Congo Republic of the" Then
+    nomPays = "Republic of Congo"
+ElseIf pays = "Cote d'Ivoire" Then
+    nomPays = "Ivory Coast"
+ElseIf pays = "EMU" Then
+    nomPays = "European Monetary Union"
+ElseIf pays = "United Arab Emirates (U.A.E.)" Then
+    nomPays = "United Arab Emirates"
+ElseIf pays = "Serbia and Montenegro" Then
+    If Mid(securityName, 1, 6) = "SERBIA" Then
+        nomPays = "Serbia"
+    Else
+        nomPays = "Montenegro"
+    End If
+Else
+    nomPays = pays
+End If
+
+rechercheIssuer = nomPays
+
+End Function
+
+Function rechercheTradeEM(pays As String, Optional bu As String)
+
+Dim EM As Boolean
+Dim a As Long
+Dim row As Long
+Dim col As String
+Dim trouve As Boolean
+row = 12
+col = "L"
+
+'If pays = "Argentina" Or pays = "Belize" Or pays = "Brazil" Or pays = "Chile" Or pays = "Colombia" Or pays = "Costa Rica" Or pays = "Dominican Republic" Or pays = "Ecuador" _
+Or pays = "El Salvador" Or pays = "Guatemala" Or pays = "Honduras" Or pays = "Jamaica" Or pays = "Mexico" Or pays = "Panama" Or pays = "Paraguay" Or pays = "Peru" Or pays = "Uruguay" _
+Or pays = "Venezuela" Or pays = "Albania" Or pays = "Armenia" Or pays = "Azerbaijan" Or pays = "Belarus" Or pays = "Bosnia and Herzegovina" Or pays = "Bulgaria" _
+Or pays = "Croatia" Or pays = "Czech Republic" Or pays = "Estonia" Or pays = "Georgia" Or pays = "Hungary" Or pays = "Kazakhstan" Or pays = "Latvia" Or pays = "Lithuania" _
+Or pays = "Macedonia" Or pays = "Moldova" Or pays = "Montenegro" Or pays = "Poland" Or pays = "Romania" Or pays = "Russia" Or pays = "Slovak Republic" Or pays = "Slovenia" _
+Or pays = "Serbia" Or pays = "Turkey" Or pays = "Ukraine" Or pays = "Bahrain" Or pays = "Iraq" Or pays = "Jordan" Or pays = "Lebanon" Or pays = "Kuwait" Or pays = "Oman" Or pays = "Qatar" _
+Or pays = "Saudi Arabia" Or pays = "United Arab Emirates" Or pays = "Cameroon" Or pays = "Egypt" Or pays = "Ethiopia" Or pays = "Gabon" Or pays = "Ghana" Or pays = "Ivory Coast" Or pays = "Kenya" _
+Or pays = "Morocco" Or pays = "Mozambique" Or pays = "Namibia" Or pays = "Nigeria" Or pays = "Rwanda" Or pays = "Senegal" Or pays = "Tanzania" Or pays = "Tunisia" Or pays = "Republic of Congo" _
+Or pays = "South Africa" Or pays = "Zambia" Or pays = "China" Or pays = "India" Or pays = "Indonesia" Or pays = "Malaysia" Or pays = "Mongolia" Or pays = "Pakistan" Or pays = "Papua New Guinea" _
+Or pays = "Philippines" Or pays = "Singapore" Or pays = "South Korea" Or pays = "Korea Republic of" Or pays = "Sri Lanka" Or pays = "Taiwan" Or pays = "Thailand" Or pays = "Vietnam" _
+Or pays = "Angola" Then
+    'EM = "true"
+'Else
+    'EM = "False"
+'End If
+
+If pays <> "" Then
+    For a = row To Workbooks(wbTemplate).Worksheets(wsTemplate9).Range(col & 1000).End(xlUp).row
+        If pays = Workbooks(wbTemplate).Worksheets(wsTemplate9).Range(col & a) Then
+            trouve = True
+            EM = True
+        End If
+    Next
+    
+    If trouve = False Then
+        EM = False
+    End If
+Else
+    EM = False
+End If
+
+If bu = "Emerging Market Debt" Then
+    EM = True
+End If
+
+rechercheTradeEM = EM
+
+End Function
+
