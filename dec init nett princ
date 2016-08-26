@@ -92,7 +92,7 @@ Global instrumentCapitalStructure() As capitalStructure
 
 Global chiffresBroker() As brokerNumbers
 
-Global Const wbTemplate = "Candriam Fixed Income Statistics.xlsm"
+Global Const wbTemplate = "Fixed Income Statistics.xlsm"
 Global Const wsTemplate1 = "Business overview"
 Global Const wsTemplate2 = "Secondary market"
 Global Const wsTemplate3 = "Secondary market Conso"
@@ -103,9 +103,9 @@ Global Const wsTemplate7 = "Broker-dealers EM only"
 Global Const wsTemplate8 = "Countries EM only"
 Global Const wsTemplate9 = "Additional information"
 Global Const wsTemplate10 = "Tables"
-Global Const cheminGOMST = "T:\CRTS\Statistiques\"
-Global Const cheminGOMSS = "S:\BRUSSELS\MANUFACTURING\CoreDealing\Fixed Income statistics\Historique Fixed Income GOMS\"
-Global Const cheminTemplateS = "S:\BRUSSELS\MANUFACTURING\CoreDealing\Fixed Income statistics\Historique Fixed Income Daily\"
+Global Const cheminGOMST = ""
+Global Const cheminGOMSS = ""
+Global Const cheminTemplateS = ""
 
 Public Type order
     account As String
